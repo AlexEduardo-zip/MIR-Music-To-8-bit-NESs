@@ -112,19 +112,21 @@ def quantize_timing(onset_times: np.ndarray, bpm: float) -> np.ndarray:
 
 def create_nes_midi(notes: List[dict], output_file: str, style: str = 'NES Original') -> None:
     """Cria arquivo MIDI no estilo selecionado."""
-    midi = MidiFile()
+    midi = MidiFile(ticks_per_beat=480)  # Aumentando a resolução do MIDI
     style_params = MUSIC_STYLES[style]
     
-    # Criar tracks para cada canal
     tracks = {
-        'pulse1': MidiTrack(),  # Melodia principal
-        'pulse2': MidiTrack(),  # Harmonia
-        'triangle': MidiTrack(), # Baixo
-        'noise': MidiTrack()    # Percussão
+        'pulse1': MidiTrack(),
+        'pulse2': MidiTrack(),
+        'triangle': MidiTrack(),
+        'noise': MidiTrack()
     }
     
     for track in tracks.values():
         midi.tracks.append(track)
+    
+    # Definir tempo (microsegundos por batida)
+    tempo = 500000  # 120 BPM (60000000 / 120)
     
     # Normalizar magnitudes
     max_mag = max(note['magnitude'] for note in notes) if notes else 1
@@ -139,7 +141,7 @@ def create_nes_midi(notes: List[dict], output_file: str, style: str = 'NES Origi
         if not (0 <= midi_note <= 127):
             continue
         
-        # Selecionar canal e ajustar velocidade baseado no estilo
+        # Selecionar canal e ajustar velocidade
         if freq < 65:
             channel = 'noise'
             velocity = int(min(127, (note['magnitude'] / max_mag) * style_params['noise_velocity']))
@@ -152,17 +154,16 @@ def create_nes_midi(notes: List[dict], output_file: str, style: str = 'NES Origi
                            style_params[f'{channel}_velocity']))
         
         track = tracks[channel]
-        current_time = int(note['time'] * 1000)
+        # Ajuste no cálculo do tempo para tornar mais rápido
+        current_time = int(note['time'] * 500)  # Reduzindo o fator de multiplicação
         delta = max(0, current_time - last_times[channel])
         last_times[channel] = current_time
         
-        # Adicionar nota com velocidade e duração específicas do estilo
-        track.append(Message('note_on', note=midi_note, 
-                           velocity=max(1, velocity), time=delta))
+        # Reduzindo a duração das notas
+        duration = style_params['note_duration'][channel] // 2  # Reduzindo pela metade
         
-        duration = style_params['note_duration'][channel]
-        track.append(Message('note_off', note=midi_note, 
-                           velocity=64, time=duration))
+        track.append(Message('note_on', note=midi_note, velocity=velocity, time=delta))
+        track.append(Message('note_off', note=midi_note, velocity=64, time=duration))
     
     midi.save(output_file)
 
@@ -284,8 +285,11 @@ def analyze_audio(samples: np.ndarray, sr: int) -> Tuple[np.ndarray, np.ndarray,
     return onset_times, pitches, magnitudes
 
 def extract_notes(pitches: np.ndarray, magnitudes: np.ndarray, onset_times: np.ndarray) -> List[dict]:
-    """Extrai notas significativas do áudio."""
+    """Extrai notas significativas do áudio com detecção de notas contínuas."""
     notes = []
+    current_note = None
+    FREQ_TOLERANCE = 3.0  # Hz de tolerância para considerar mesma nota
+    TIME_THRESHOLD = 0.1  # segundos de tolerância para considerar nota contínua
     
     for t in range(pitches.shape[1]):
         if len(onset_times) > 0 and t/pitches.shape[1] * len(onset_times) < len(onset_times):
@@ -301,11 +305,31 @@ def extract_notes(pitches: np.ndarray, magnitudes: np.ndarray, onset_times: np.n
                     mag = magnitudes[idx, t]
                     
                     if freq > 0:  # Ignorar frequências zero
-                        notes.append({
-                            'time': time,
-                            'frequency': freq,
-                            'magnitude': mag
-                        })
+                        # Verificar se é continuação de nota anterior
+                        if current_note and \
+                           abs(current_note['frequency'] - freq) < FREQ_TOLERANCE and \
+                           (time - current_note['end_time']) < TIME_THRESHOLD:
+                            # Atualizar nota existente
+                            current_note['end_time'] = time
+                            current_note['magnitude'] = max(current_note['magnitude'], mag)
+                            current_note['is_continuous'] = True
+                        else:
+                            # Finalizar nota anterior se existir
+                            if current_note:
+                                notes.append(current_note)
+                            
+                            # Criar nova nota
+                            current_note = {
+                                'time': time,
+                                'end_time': time,
+                                'frequency': freq,
+                                'magnitude': mag,
+                                'is_continuous': False
+                            }
+    
+    # Adicionar última nota se existir
+    if current_note:
+        notes.append(current_note)
     
     return notes
 
