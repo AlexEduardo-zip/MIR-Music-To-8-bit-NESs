@@ -111,8 +111,8 @@ def quantize_timing(onset_times: np.ndarray, bpm: float) -> np.ndarray:
     return quantized_times
 
 def create_nes_midi(notes: List[dict], output_file: str, style: str = 'NES Original') -> None:
-    """Cria arquivo MIDI no estilo selecionado com suporte a notas contínuas."""
-    midi = MidiFile(ticks_per_beat=480)
+    """Cria arquivo MIDI no estilo selecionado."""
+    midi = MidiFile(ticks_per_beat=480)  # Aumentando a resolução do MIDI
     style_params = MUSIC_STYLES[style]
     
     tracks = {
@@ -124,6 +124,9 @@ def create_nes_midi(notes: List[dict], output_file: str, style: str = 'NES Origi
     
     for track in tracks.values():
         midi.tracks.append(track)
+    
+    # Definir tempo (microsegundos por batida)
+    tempo = 500000  # 120 BPM (60000000 / 120)
     
     # Normalizar magnitudes
     max_mag = max(note['magnitude'] for note in notes) if notes else 1
@@ -151,24 +154,16 @@ def create_nes_midi(notes: List[dict], output_file: str, style: str = 'NES Origi
                            style_params[f'{channel}_velocity']))
         
         track = tracks[channel]
-        current_time = int(note['time'] * 1000)
+        # Ajuste no cálculo do tempo para tornar mais rápido
+        current_time = int(note['time'] * 500)  # Reduzindo o fator de multiplicação
         delta = max(0, current_time - last_times[channel])
         last_times[channel] = current_time
         
-        # Calcular duração baseada na continuidade da nota
-        if note.get('is_continuous', False):
-            duration = int((note['end_time'] - note['time']) * 1000)  # Duração real da nota
-        else:
-            duration = style_params['note_duration'][channel]
+        # Reduzindo a duração das notas
+        duration = style_params['note_duration'][channel] // 2  # Reduzindo pela metade
         
-        # Adicionar controle de expressão para notas contínuas
-        if note.get('is_continuous', False):
-            track.append(Message('control_change', control=11, value=127, time=delta))
-            track.append(Message('note_on', note=midi_note, velocity=velocity, time=0))
-            track.append(Message('note_off', note=midi_note, velocity=64, time=duration))
-        else:
-            track.append(Message('note_on', note=midi_note, velocity=velocity, time=delta))
-            track.append(Message('note_off', note=midi_note, velocity=64, time=duration))
+        track.append(Message('note_on', note=midi_note, velocity=velocity, time=delta))
+        track.append(Message('note_off', note=midi_note, velocity=64, time=duration))
     
     midi.save(output_file)
 
@@ -365,29 +360,12 @@ def main():
     from tkinter import filedialog, ttk
     import pygame
     
-    pygame.mixer.init()
-    
     def select_file():
-        """Seleciona um arquivo de áudio para conversão."""
         file_path = filedialog.askopenfilename(
             filetypes=[("Arquivos de Áudio", "*.mp3 *.wav")])
         if file_path:
             input_entry.delete(0, tk.END)
             input_entry.insert(0, file_path)
-            play_button.config(state=tk.DISABLED)
-            convert_button.config(state=tk.NORMAL)
-            status_label.config(text="Arquivo de áudio selecionado. Clique em Converter.")
-    
-    def load_midi():
-        """Carrega um arquivo MIDI existente."""
-        file_path = filedialog.askopenfilename(
-            filetypes=[("Arquivos MIDI", "*.mid")])
-        if file_path:
-            input_entry.delete(0, tk.END)
-            input_entry.insert(0, file_path)
-            play_button.config(state=tk.NORMAL)
-            convert_button.config(state=tk.DISABLED)
-            status_label.config(text="MIDI carregado. Pronto para reprodução.")
     
     def play_midi():
         if not hasattr(play_midi, "playing"):
@@ -462,18 +440,11 @@ def main():
     frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
     
     ttk.Label(frame, text="Arquivo de Entrada:").grid(row=0, column=0, sticky=tk.W)
-    global input_entry, play_button, convert_button, status_label, style_var
     input_entry = ttk.Entry(frame, width=50)
     input_entry.grid(row=1, column=0, columnspan=2)
     
-    # Frame para os botões de seleção
-    button_frame = ttk.Frame(frame)
-    button_frame.grid(row=1, column=2)
-    
-    ttk.Button(button_frame, text="Selecionar Áudio", 
-               command=select_file).pack(side=tk.LEFT, padx=2)
-    ttk.Button(button_frame, text="Carregar MIDI", 
-               command=load_midi).pack(side=tk.LEFT, padx=2)
+    ttk.Button(frame, text="Selecionar Arquivo", 
+               command=select_file).grid(row=1, column=2)
     
     spectral_var = tk.BooleanVar()
     ttk.Checkbutton(frame, text="Mostrar Análise Espectral", 
@@ -486,8 +457,8 @@ def main():
                               state='readonly', width=15)
     style_combo.grid(row=2, column=1, sticky=tk.W)
     
-    convert_button = ttk.Button(frame, text="Converter", command=convert)
-    convert_button.grid(row=3, column=0)
+    ttk.Button(frame, text="Converter", 
+               command=convert).grid(row=3, column=0)
     
     play_button = ttk.Button(frame, text="▶ Reproduzir", 
                             command=play_midi, state=tk.DISABLED)
@@ -495,10 +466,6 @@ def main():
     
     status_label = ttk.Label(frame, text="")
     status_label.grid(row=4, column=0, columnspan=3)
-    
-    # Configurar espaçamento
-    for child in frame.winfo_children():
-        child.grid_configure(padx=5, pady=5)
     
     root.mainloop()
 
