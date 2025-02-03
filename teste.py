@@ -368,21 +368,25 @@ def main():
     pygame.mixer.init()
     
     def select_file():
+        """Seleciona um arquivo de áudio para conversão."""
         file_path = filedialog.askopenfilename(
             filetypes=[("Arquivos de Áudio", "*.mp3 *.wav")])
         if file_path:
             input_entry.delete(0, tk.END)
             input_entry.insert(0, file_path)
-            play_button.config(state=tk.DISABLED)  # Desabilita play até converter
+            play_button.config(state=tk.DISABLED)
+            convert_button.config(state=tk.NORMAL)
             status_label.config(text="Arquivo de áudio selecionado. Clique em Converter.")
     
     def load_midi():
+        """Carrega um arquivo MIDI existente."""
         file_path = filedialog.askopenfilename(
             filetypes=[("Arquivos MIDI", "*.mid")])
         if file_path:
             input_entry.delete(0, tk.END)
             input_entry.insert(0, file_path)
-            play_button.config(state=tk.NORMAL)  # Habilita play imediatamente
+            play_button.config(state=tk.NORMAL)
+            convert_button.config(state=tk.DISABLED)
             status_label.config(text="MIDI carregado. Pronto para reprodução.")
     
     def play_midi():
@@ -395,13 +399,7 @@ def main():
                 play_button.config(text="▶ Reproduzir")
                 play_midi.playing = False
             else:
-                input_file = input_entry.get()
-                # Verifica se é um arquivo MIDI já existente ou precisa usar o _nes.mid
-                if input_file.endswith('.mid'):
-                    midi_file = input_file
-                else:
-                    midi_file = os.path.splitext(input_file)[0] + "_nes.mid"
-                
+                midi_file = os.path.splitext(input_entry.get())[0] + "_nes.mid"
                 if os.path.exists(midi_file):
                     if not pygame.mixer.get_init():
                         pygame.mixer.init()
@@ -464,6 +462,7 @@ def main():
     frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
     
     ttk.Label(frame, text="Arquivo de Entrada:").grid(row=0, column=0, sticky=tk.W)
+    global input_entry, play_button, convert_button, status_label, style_var
     input_entry = ttk.Entry(frame, width=50)
     input_entry.grid(row=1, column=0, columnspan=2)
     
@@ -487,8 +486,8 @@ def main():
                               state='readonly', width=15)
     style_combo.grid(row=2, column=1, sticky=tk.W)
     
-    ttk.Button(frame, text="Converter", 
-               command=convert).grid(row=3, column=0)
+    convert_button = ttk.Button(frame, text="Converter", command=convert)
+    convert_button.grid(row=3, column=0)
     
     play_button = ttk.Button(frame, text="▶ Reproduzir", 
                             command=play_midi, state=tk.DISABLED)
